@@ -142,7 +142,6 @@ pub fn main() !void {
         "simple_vert.spv",
         "simple_frag.spv",
         vk.VK_FORMAT_B8G8R8A8_SRGB,
-        vk.VK_FORMAT_D32_SFLOAT,
         .None,
     );
 
@@ -1291,7 +1290,6 @@ pub const Pipeline = struct {
         vertex_shader_path: [:0]const u8,
         fragment_shader_path: [:0]const u8,
         color_attachment_format: vk.VkFormat,
-        depth_format: vk.VkFormat,
         blending: BlendingType,
     ) !Pipeline {
 
@@ -1357,9 +1355,7 @@ pub const Pipeline = struct {
             .polygon_mode(vk.VK_POLYGON_MODE_FILL)
             .cull_mode(vk.VK_CULL_MODE_NONE, vk.VK_FRONT_FACE_CLOCKWISE)
             .multisampling_none()
-            .color_attachment_format(color_attachment_format)
-            .depthtest(true, vk.VK_COMPARE_OP_GREATER_OR_EQUAL)
-            .depth_format(depth_format);
+            .color_attachment_format(color_attachment_format);
         switch (blending) {
             .None => _ = builder.blending_none(),
             .Alpha => _ = builder.blending_alphablend(),
@@ -1398,9 +1394,6 @@ pub const PipelineBuilder = struct {
     },
     multisampling: vk.VkPipelineMultisampleStateCreateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-    },
-    depth_stencil: vk.VkPipelineDepthStencilStateCreateInfo = .{
-        .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
     },
     rendering: vk.VkPipelineRenderingCreateInfo = .{
         .sType = vk.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
@@ -1504,41 +1497,6 @@ pub const PipelineBuilder = struct {
         return self;
     }
 
-    pub fn depth_format(self: *Self, format: vk.VkFormat) *Self {
-        self.rendering.depthAttachmentFormat = format;
-        return self;
-    }
-
-    pub fn depthtest_none(self: *Self) *Self {
-        self.depth_stencil.depthTestEnable = vk.VK_FALSE;
-        self.depth_stencil.depthWriteEnable = vk.VK_FALSE;
-        self.depth_stencil.depthCompareOp = vk.VK_COMPARE_OP_NEVER;
-        self.depth_stencil.depthBoundsTestEnable = vk.VK_FALSE;
-        self.depth_stencil.stencilTestEnable = vk.VK_FALSE;
-        self.depth_stencil.front = .{};
-        self.depth_stencil.back = .{};
-        self.depth_stencil.minDepthBounds = 0.0;
-        self.depth_stencil.maxDepthBounds = 1.0;
-        return self;
-    }
-
-    pub fn depthtest(
-        self: *Self,
-        depth_write_enable: bool,
-        depth_compare_op: vk.VkCompareOp,
-    ) *Self {
-        self.depth_stencil.depthTestEnable = vk.VK_TRUE;
-        self.depth_stencil.depthWriteEnable = @intFromBool(depth_write_enable);
-        self.depth_stencil.depthCompareOp = depth_compare_op;
-        self.depth_stencil.depthBoundsTestEnable = vk.VK_FALSE;
-        self.depth_stencil.stencilTestEnable = vk.VK_FALSE;
-        self.depth_stencil.front = .{};
-        self.depth_stencil.back = .{};
-        self.depth_stencil.minDepthBounds = 0.0;
-        self.depth_stencil.maxDepthBounds = 1.0;
-        return self;
-    }
-
     pub fn build(self: *Self, device: vk.VkDevice) !vk.VkPipeline {
         self.rendering.pColorAttachmentFormats = &self._color_attachment_format;
         self.rendering.colorAttachmentCount = 1;
@@ -1581,7 +1539,6 @@ pub const PipelineBuilder = struct {
             .pRasterizationState = &self.rasterization,
             .pMultisampleState = &self.multisampling,
             .pColorBlendState = &color_blending,
-            .pDepthStencilState = &self.depth_stencil,
             .pDynamicState = &dynamic_state_info,
             .layout = self._layout,
             .pNext = &self.rendering,
