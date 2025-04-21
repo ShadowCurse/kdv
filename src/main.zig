@@ -133,11 +133,11 @@ pub fn main() !void {
     // This fd corresponds to the Vulkan render finish semaphore. It is triggered by Vulkan when
     // the rendering is finished. It is passed to the DRM with a request in order for DRM to wait
     // for Vulkan to finish the rendering. Because the DRM request call is before the
-    // Vulkan queue sumbit call, initially there is no fd to pass, so it will be skipped during
+    // Vulkan queue submit call, initially there is no fd to pass, so it will be skipped during
     // request construction.
     var render_fd: ?std.posix.fd_t = null;
 
-    // This fd corresponds to the DRM finishing paiting the output. It will be imported into the
+    // This fd corresponds to the DRM finishing painting the output. It will be imported into the
     // Vulkan semaphore for Vulkan to wait on before starting rendering.
     var output_fd: std.posix.fd_t = -1;
 
