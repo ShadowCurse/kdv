@@ -141,77 +141,104 @@ pub fn main() !void {
     // Vulkan semaphore for Vulkan to wait on before starting rendering.
     var output_fd: std.posix.fd_t = -1;
 
+    var t = std.time.milliTimestamp();
     while (true) {
-        var commit_request: drm.CommitRequest = .{};
-        construct_drm_commit_request(
-            &commit_request,
-            primary_plane_props,
-            crtc_props,
-            connector_props,
-            &vk_context.output_image,
-            primary_plane.plane_id,
-            primary_plane.crtc_id,
-            fb_id,
-            connector.connector_id,
-            output_mode_blob_id,
-            render_fd,
-            &output_fd,
-        );
-        const flags = c.DRM_MODE_ATOMIC_NONBLOCK | c.DRM_MODE_PAGE_FLIP_EVENT;
-        drm.atomic_commit(drm_fd, &commit_request, flags);
+        const tt = std.time.milliTimestamp();
+        std.log.info("Whole frame took: {}ms", .{tt - t});
+        t = tt;
 
-        // Wait for DRM repainting the output and read events sent.
-        var p = [_]std.posix.pollfd{
-            .{
-                .fd = drm_fd,
-                .events = 1,
-                .revents = 0,
-            },
-        };
-        _ = try std.posix.poll(&p, -1);
-        var buff: [1024]u8 = undefined;
-        _ = try std.posix.read(drm_fd, &buff);
+        {
+            const now = std.time.milliTimestamp();
+            defer {
+                const dt = std.time.milliTimestamp() - now;
+                std.log.info("DRM commit took: {}ms", .{dt});
+            }
+
+            var commit_request: drm.CommitRequest = .{};
+            construct_drm_commit_request(
+                &commit_request,
+                primary_plane_props,
+                crtc_props,
+                connector_props,
+                &vk_context.output_image,
+                primary_plane.plane_id,
+                primary_plane.crtc_id,
+                fb_id,
+                connector.connector_id,
+                output_mode_blob_id,
+                render_fd,
+                &output_fd,
+            );
+            const flags = c.DRM_MODE_ATOMIC_NONBLOCK | c.DRM_MODE_PAGE_FLIP_EVENT;
+            drm.atomic_commit(drm_fd, &commit_request, flags);
+        }
+
+        {
+            const now = std.time.milliTimestamp();
+            defer {
+                const dt = std.time.milliTimestamp() - now;
+                std.log.info("DRM wait took: {}ms", .{dt});
+            }
+            // Wait for DRM repainting the output and read events sent.
+            var p = [_]std.posix.pollfd{
+                .{
+                    .fd = drm_fd,
+                    .events = 1,
+                    .revents = 0,
+                },
+            };
+            _ = try std.posix.poll(&p, -1);
+            var buff: [1024]u8 = undefined;
+            _ = try std.posix.read(drm_fd, &buff);
+        }
 
         // Close Vulkan render fd. Otherwise it will open new fds
         // each frame.
         if (render_fd) |rf|
             std.posix.close(rf);
 
-        try vk_context.start_command(&command);
+        {
+            const now = std.time.milliTimestamp();
+            defer {
+                const dt = std.time.milliTimestamp() - now;
+                std.log.info("Vulkan command creation and submission took: {}ms", .{dt});
+            }
+            try vk_context.start_command(&command);
 
-        try command.import_output_semaphore_fd(
-            vk_context.instance.instance,
-            vk_context.logical_device.device,
-            output_fd,
-        );
+            try command.import_output_semaphore_fd(
+                vk_context.instance.instance,
+                vk_context.logical_device.device,
+                output_fd,
+            );
 
-        try vk_context.start_rendering(&command);
-        vk.vkCmdBindPipeline(
-            command.cmd,
-            vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-            pipeline.pipeline,
-        );
-        vk.vkCmdBindDescriptorSets(
-            command.cmd,
-            vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
-            pipeline.pipeline_layout,
-            0,
-            1,
-            &pipeline.descriptor_set,
-            0,
-            null,
-        );
-        vk.vkCmdDraw(
-            command.cmd,
-            3,
-            1,
-            0,
-            0,
-        );
-        try vk_context.end_rendering(&command);
+            try vk_context.start_rendering(&command);
+            vk.vkCmdBindPipeline(
+                command.cmd,
+                vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipeline.pipeline,
+            );
+            vk.vkCmdBindDescriptorSets(
+                command.cmd,
+                vk.VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipeline.pipeline_layout,
+                0,
+                1,
+                &pipeline.descriptor_set,
+                0,
+                null,
+            );
+            vk.vkCmdDraw(
+                command.cmd,
+                3,
+                1,
+                0,
+                0,
+            );
+            try vk_context.end_rendering(&command);
 
-        try vk_context.end_command(&command);
-        try vk_context.queue_command(&command);
+            try vk_context.end_command(&command);
+            try vk_context.queue_command(&command);
+        }
 
         render_fd = try command.get_render_semaphore_fd(
             vk_context.instance.instance,
